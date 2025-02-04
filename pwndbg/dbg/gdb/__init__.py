@@ -29,18 +29,45 @@ from pwndbg.aglib import load_aglib
 from pwndbg.dbg import selection
 from pwndbg.gdblib import gdb_version
 from pwndbg.gdblib import load_gdblib
+from pwndbg.lib.arch import PWNDBG_SUPPORTED_ARCHITECTURES_TYPE
 from pwndbg.lib.memory import PAGE_MASK
 from pwndbg.lib.memory import PAGE_SIZE
 
 T = TypeVar("T")
 
 
+# List of supported architectures that GDB recognizes
+# These strings to converted to the Pwndbg-specific name for the architecture
+gdb_architecture_name_fixup_list = (
+    "x86-64",
+    "i386",
+    "i8086",
+    "aarch64",
+    "mips",
+    "powerpc",
+    "sparc",
+    "arm",
+    "iwmmxt",
+    "iwmmxt2",
+    "xscale",
+    "riscv:rv32",
+    "riscv:rv64",
+    "riscv",
+    "loongarch64",
+)
+
+
 class GDBArch(pwndbg.dbg_mod.Arch):
     _endian: Literal["little", "big"]
-    _name: str
+    _name: PWNDBG_SUPPORTED_ARCHITECTURES_TYPE
     _ptrsize: int
 
-    def __init__(self, endian: Literal["little", "big"], name: str, ptrsize: int):
+    def __init__(
+        self,
+        endian: Literal["little", "big"],
+        name: PWNDBG_SUPPORTED_ARCHITECTURES_TYPE,
+        ptrsize: int,
+    ):
         self._endian = endian
         self._name = name
         self._ptrsize = ptrsize
@@ -52,7 +79,7 @@ class GDBArch(pwndbg.dbg_mod.Arch):
 
     @override
     @property
-    def name(self) -> str:
+    def name(self) -> PWNDBG_SUPPORTED_ARCHITECTURES_TYPE:
         return self._name
 
     @override
@@ -681,7 +708,7 @@ class GDBProcess(pwndbg.dbg_mod.Process):
         arch = arch.lower()
 
         # Below, we fix the fetched architecture
-        for match in pwndbg.aglib.arch_mod.ARCHS:
+        for match in gdb_architecture_name_fixup_list:
             if match in arch:
                 # Distinguish between Cortex-M and other ARM
                 # When GDB detects correctly Cortex-M processes, it will label them with `arm*-m`, such as armv7e-m
@@ -697,12 +724,14 @@ class GDBProcess(pwndbg.dbg_mod.Process):
                 elif match == "riscv":
                     # If GDB doesn't detect the width, it will just say `riscv`.
                     match = "rv64"
-                return GDBArch(endian, match, ptrsize)
+                elif match == "iwmmxt" or match == "iwmmxt2" or match == "xscale":
+                    match = "arm"
+                return GDBArch(endian, match, ptrsize)  # type: ignore[arg-type]
 
         if not_exactly_arch:
             raise RuntimeError(f"Could not deduce architecture from: {arch}")
 
-        return GDBArch(endian, arch, ptrsize)
+        return GDBArch(endian, arch, ptrsize)  # type: ignore[arg-type]
 
     @override
     def break_at(
