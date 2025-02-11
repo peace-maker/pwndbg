@@ -1,18 +1,20 @@
 {
-  pkgs ? import <nixpkgs> { },
+  pkgs,
+  inputs,
   python3 ? pkgs.python3,
-  gdb ? pkgs.gdb,
-  inputs ? null,
+  gdb ? pkgs.pwndbg_gdb,
+  lldb ? pkgs.pwndbg_lldb,
   isDev ? false,
   isLLDB ? false,
-  lldb ? pkgs.lldb_19,
+  ...
 }:
 let
-  binPath = pkgs.lib.makeBinPath (
+  lib = pkgs.lib;
+  binPath = lib.makeBinPath (
     [
       python3.pkgs.pwntools # ref: https://github.com/pwndbg/pwndbg/blob/2023.07.17/pwndbg/wrappers/checksec.py#L8
     ]
-    ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+    ++ lib.optionals pkgs.stdenv.isLinux [
       python3.pkgs.ropper # ref: https://github.com/pwndbg/pwndbg/blob/2023.07.17/pwndbg/commands/ropper.py#L30
     ]
   );
@@ -20,31 +22,34 @@ let
   pyEnv = import ./pyenv.nix {
     inherit
       pkgs
-      python3
       inputs
+      python3
       isDev
       isLLDB
       ;
-    lib = pkgs.lib;
   };
 
   pwndbgVersion =
     let
-      versionFile = builtins.readFile "${inputs.pwndbg}/pwndbg/lib/version.py";
+      versionFile = builtins.readFile "${inputs.self}/pwndbg/lib/version.py";
       versionMatch = builtins.match ".*\n__version__ = \"([0-9]+.[0-9]+.[0-9]+)\".*" versionFile;
       version = if versionMatch == null then "unknown" else (builtins.elemAt versionMatch 0);
     in
     version;
 
-  pwndbg =
+  pwndbg = pkgs.callPackage (
+    {
+      stdenv,
+      makeWrapper,
+    }:
     let
       pwndbgName = if isLLDB then "pwndbg-lldb" else "pwndbg";
     in
-    pkgs.stdenv.mkDerivation {
+    stdenv.mkDerivation {
       name = pwndbgName;
       version = pwndbgVersion;
 
-      src = pkgs.lib.sourceByRegex inputs.pwndbg (
+      src = lib.sourceByRegex inputs.self (
         [
           "pwndbg"
           "pwndbg/.*"
@@ -62,7 +67,7 @@ let
         )
       );
 
-      nativeBuildInputs = [ pkgs.makeWrapper ];
+      nativeBuildInputs = [ makeWrapper ];
       buildInputs = [ pyEnv ];
 
       installPhase =
@@ -73,7 +78,7 @@ let
               # Build self-contained init script for lazy loading from vanilla gdb
               # I purposely use insert() so I can re-import during development without having to restart gdb
               sed "${line} i import sys, os\n\
-              sys.path.insert(0, '${pyEnv}/${pyEnv.sitePackages}')\n\
+              sys.path.insert(0, '${pyEnv}/${python3.sitePackages}')\n\
               sys.path.insert(0, '$out/share/pwndbg/')\n\
               os.environ['PATH'] += ':${binPath}'\n" -i ${target}
             '';
@@ -94,10 +99,10 @@ let
 
               touch $out/share/pwndbg/.skip-venv
               wrapProgram $out/bin/${pwndbgName} \
-                --prefix PATH : ${pkgs.lib.makeBinPath [ lldb ]} \
+                --prefix PATH : ${lib.makeBinPath [ lldb ]} \
             ''
-            + (pkgs.lib.optionalString (!pkgs.stdenv.isDarwin) ''
-              --set LLDB_DEBUGSERVER_PATH ${pkgs.lib.makeBinPath [ lldb ]}/lldb-server \
+            + (lib.optionalString (!stdenv.isDarwin) ''
+              --set LLDB_DEBUGSERVER_PATH ${lib.makeBinPath [ lldb ]}/lldb-server \
             '')
             + ''
               --set PWNDBG_LLDBINIT_DIR $out/share/pwndbg
@@ -125,6 +130,7 @@ let
         lldb = lldb;
         isLLDB = isLLDB;
       };
-    };
+    }
+  ) { };
 in
 pwndbg
