@@ -70,10 +70,24 @@ class Parameter:
         self.help_docstring = help_docstring.strip()
         self.name = name
         self.default = default
-        self.value = default
+        self._value = default
         self.param_class = param_class or PARAM_CLASSES[type(default)]
         self.enum_sequence = enum_sequence
         self.scope = scope
+        self.update_listeners: List[Callable[[Any], None]] = []
+
+    def add_update_listener(self, listener: Callable[[Any], None]) -> None:
+        self.update_listeners.append(listener)
+
+    @property
+    def value(self) -> Any:
+        return self._value
+
+    @value.setter
+    def value(self, value: Any) -> None:
+        self._value = value
+        for listener in self.update_listeners:
+            listener(value)
 
     @property
     def is_changed(self) -> bool:
