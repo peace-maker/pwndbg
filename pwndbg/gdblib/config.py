@@ -53,6 +53,7 @@ class Parameter(gdb.Parameter):
         self.init_super(param)
         self.param = param
         self.value = param.value
+        self.param.add_update_listener(self.on_change)
 
     def init_super(self, param: pwndbg.lib.config.Parameter) -> None:
         """Initializes the super class for GDB >= 9"""
@@ -66,6 +67,12 @@ class Parameter(gdb.Parameter):
             )
             return
         super().__init__(param.name, gdb.COMMAND_SUPPORT, c)
+
+    def on_change(self, value: Any) -> None:
+        """Called when the value of the pwndbg.lib.config.Parameter changes
+        Transfer the value to the GDB parameter to keep them in sync.
+        """
+        self.value = value
 
     @property
     def native_value(self):
